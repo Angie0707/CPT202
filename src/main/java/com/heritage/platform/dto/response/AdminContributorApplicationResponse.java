@@ -14,7 +14,9 @@ public record AdminContributorApplicationResponse(
         String applicationReason,
         String attachmentPath,
         ContributorApplicationStatus status,
+        Long reviewerId,
         String reviewerName,
+        String rejectReason,
         LocalDateTime createdAt,
         LocalDateTime reviewedAt,
         LocalDateTime updatedAt

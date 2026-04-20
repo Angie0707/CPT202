@@ -43,6 +43,9 @@ public class ContributorApplication extends BaseTimeEntity {
 
     private LocalDateTime reviewedAt;
 
+    @Column(length = 255)
+    private String rejectReason;
+
     protected ContributorApplication() {
     }
 
@@ -61,12 +64,14 @@ public class ContributorApplication extends BaseTimeEntity {
         this.status = ContributorApplicationStatus.APPROVED;
         this.reviewedBy = reviewer;
         this.reviewedAt = LocalDateTime.now();
+        this.rejectReason = null;
     }
 
-    public void reject(User reviewer) {
+    public void reject(User reviewer, String reason) {
         this.status = ContributorApplicationStatus.REJECTED;
         this.reviewedBy = reviewer;
         this.reviewedAt = LocalDateTime.now();
+        this.rejectReason = reason;
     }
 
     public Long getId() {
@@ -95,5 +100,9 @@ public class ContributorApplication extends BaseTimeEntity {
 
     public LocalDateTime getReviewedAt() {
         return reviewedAt;
+    }
+
+    public String getRejectReason() {
+        return rejectReason;
     }
 }

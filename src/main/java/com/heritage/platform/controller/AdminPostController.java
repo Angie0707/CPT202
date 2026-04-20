@@ -3,11 +3,14 @@ package com.heritage.platform.controller;
 import com.heritage.platform.common.ApiResponse;
 import com.heritage.platform.dto.request.AdminPostReviewRequest;
 import com.heritage.platform.dto.response.AdminPostDetailResponse;
+import com.heritage.platform.dto.response.AdminPostPageResult;
 import com.heritage.platform.dto.response.AdminPostSummaryResponse;
 import com.heritage.platform.enums.AdminPostSort;
 import com.heritage.platform.enums.PostStatus;
 import com.heritage.platform.service.AdminPostService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,12 +32,28 @@ public class AdminPostController {
     }
 
     @GetMapping
-    public ApiResponse<List<AdminPostSummaryResponse>> listPosts(
+    public ResponseEntity<ApiResponse<List<AdminPostSummaryResponse>>> listPosts(
             @RequestParam(required = false) PostStatus status,
             @RequestParam(required = false) String title,
-            @RequestParam(required = false) AdminPostSort sort
+            @RequestParam(required = false) AdminPostSort sort,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        return ApiResponse.success(adminPostService.listPosts(status, title, sort));
+        if (page != null || size != null) {
+            AdminPostPageResult result = adminPostService.listPostsPage(status, title, sort, page, size);
+            HttpHeaders headers = new HttpHeaders();
+            headers.add("X-Page", String.valueOf(result.page()));
+            headers.add("X-Size", String.valueOf(result.size()));
+            headers.add("X-Total-Elements", String.valueOf(result.totalElements()));
+            headers.add("X-Total-Pages", String.valueOf(result.totalPages()));
+            headers.add("X-Has-Previous", String.valueOf(result.hasPrevious()));
+            headers.add("X-Has-Next", String.valueOf(result.hasNext()));
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .body(ApiResponse.success(result.items()));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(adminPostService.listPosts(status, title, sort)));
     }
 
     @GetMapping("/{postId}")

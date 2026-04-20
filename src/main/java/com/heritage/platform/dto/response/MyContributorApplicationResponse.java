@@ -9,6 +9,8 @@ public record MyContributorApplicationResponse(
         String applicationReason,
         String attachmentPath,
         ContributorApplicationStatus status,
+        String reviewerName,
+        String rejectReason,
         LocalDateTime createdAt,
         LocalDateTime reviewedAt,
         LocalDateTime updatedAt

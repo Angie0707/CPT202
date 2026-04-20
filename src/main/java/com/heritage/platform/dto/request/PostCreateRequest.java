@@ -14,9 +14,6 @@ public record PostCreateRequest(
         @NotBlank(message = "正文不能为空")
         String content,
 
-        @NotNull(message = "作者不能为空")
-        Long authorId,
-
         @NotNull(message = "分类不能为空")
         Long categoryId,
 

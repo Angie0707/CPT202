@@ -34,6 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -178,6 +179,43 @@ class PostReviewFlowApiTests {
                         .content(objectMapper.writeValueAsString(commentPayload("Should fail"))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void unauthenticatedWriteEndpointsAreRejectedBySecurityConfig() throws Exception {
+        Post draft = createPost(authorA, PostStatus.DRAFT);
+        Post published = createPost(authorA, PostStatus.PUBLISHED);
+
+        mockMvc.perform(post("/api/posts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createPayload("JWT Draft"))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/posts/{postId}", draft.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updatePayload("Should not reach service"))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/posts/{postId}/submit-review", draft.getId()))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/posts/{postId}/comments", published.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(commentPayload("Anonymous comment"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void uploadEndpointsRequireAuthenticationAndContributorRole() throws Exception {
+        MockMultipartFile image = new MockMultipartFile("file", "cover.jpg", MediaType.IMAGE_JPEG_VALUE, "image".getBytes());
+
+        mockMvc.perform(multipart("/api/uploads/images").file(image))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(authorRequest(multipart("/api/uploads/images").file(image), authorA))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("仅投稿用户可执行该操作"));
     }
 
     @Test
@@ -444,8 +482,53 @@ class PostReviewFlowApiTests {
     }
 
     @Test
+    void adminPostListSupportsPaginationWithFiltersAndSort() throws Exception {
+        Post alphaPendingOlder = createPost(authorA, PostStatus.PENDING_REVIEW, "Paged Alpha Older");
+        Thread.sleep(5L);
+        Post alphaPendingNewer = createPost(authorA, PostStatus.PENDING_REVIEW, "Paged Alpha Newer");
+        createPost(authorA, PostStatus.PUBLISHED, "Paged Alpha Published");
+
+        mockMvc.perform(adminRequest(get("/api/admin/posts")
+                        .param("status", "PENDING_REVIEW")
+                        .param("title", "Paged Alpha")
+                        .param("sort", "SUBMITTED_DESC")
+                        .param("page", "0")
+                        .param("size", "1")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Page", "0"))
+                .andExpect(header().string("X-Size", "1"))
+                .andExpect(header().string("X-Total-Elements", "2"))
+                .andExpect(header().string("X-Total-Pages", "2"))
+                .andExpect(header().string("X-Has-Previous", "false"))
+                .andExpect(header().string("X-Has-Next", "true"))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(alphaPendingNewer.getId()))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING_REVIEW"));
+
+        mockMvc.perform(adminRequest(get("/api/admin/posts")
+                        .param("status", "PENDING_REVIEW")
+                        .param("title", "Paged Alpha")
+                        .param("sort", "SUBMITTED_DESC")
+                        .param("page", "1")
+                        .param("size", "1")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Page", "1"))
+                .andExpect(header().string("X-Size", "1"))
+                .andExpect(header().string("X-Total-Elements", "2"))
+                .andExpect(header().string("X-Total-Pages", "2"))
+                .andExpect(header().string("X-Has-Previous", "true"))
+                .andExpect(header().string("X-Has-Next", "false"))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(alphaPendingOlder.getId()))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING_REVIEW"));
+    }
+
+    @Test
     void adminCanListUsersByUsernameAndRole() throws Exception {
         User contributor = userRepository.save(new User("contributor-a", "hash", "Contributor A", null, UserRole.CONTRIBUTOR, true));
+        User inactiveUser = userRepository.save(new User("inactive-user", "hash", "Inactive User", null, UserRole.USER, false));
 
         mockMvc.perform(adminRequest(get("/api/admin/users").param("username", "author")))
                 .andExpect(status().isOk())
@@ -460,7 +543,18 @@ class PostReviewFlowApiTests {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].id").value(contributor.getId()))
-                .andExpect(jsonPath("$.data[0].role").value("CONTRIBUTOR"));
+                .andExpect(jsonPath("$.data[0].role").value("CONTRIBUTOR"))
+                .andExpect(jsonPath("$.data[0].active").value(true));
+
+        mockMvc.perform(adminRequest(get("/api/admin/users")
+                        .param("username", "inactive-user")
+                        .param("role", "USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(inactiveUser.getId()))
+                .andExpect(jsonPath("$.data[0].role").value("USER"))
+                .andExpect(jsonPath("$.data[0].active").value(false));
     }
 
     @Test
@@ -498,6 +592,118 @@ class PostReviewFlowApiTests {
     }
 
     @Test
+    void downgradedContributorDisappearsFromContributorFilterAndAppearsUnderUserFilter() throws Exception {
+        User contributor = userRepository.save(new User("filter-role-switch", "hash", "Filter Role Switch", null, UserRole.CONTRIBUTOR, true));
+
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/role", contributor.getId()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload("role", "USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(contributor.getId()))
+                .andExpect(jsonPath("$.data.role").value("USER"));
+
+        mockMvc.perform(adminRequest(get("/api/admin/users")
+                        .param("role", "CONTRIBUTOR")
+                        .param("username", "filter-role-switch")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(0));
+
+        mockMvc.perform(adminRequest(get("/api/admin/users")
+                        .param("role", "USER")
+                        .param("username", "filter-role-switch")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(contributor.getId()))
+                .andExpect(jsonPath("$.data[0].username").value("filter-role-switch"))
+                .andExpect(jsonPath("$.data[0].role").value("USER"));
+    }
+
+    @Test
+    void adminCanDeactivateAndReactivateManageableUsers() throws Exception {
+        User contributor = userRepository.save(new User("active-role-switch", "hash", "Active Role Switch", null, UserRole.CONTRIBUTOR, true));
+
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/deactivate", authorA.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(authorA.getId()))
+                .andExpect(jsonPath("$.data.active").value(false));
+        assertThat(userRepository.findById(authorA.getId()).orElseThrow().getActive()).isFalse();
+
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/deactivate", contributor.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(contributor.getId()))
+                .andExpect(jsonPath("$.data.active").value(false));
+        assertThat(userRepository.findById(contributor.getId()).orElseThrow().getActive()).isFalse();
+
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/activate", contributor.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(contributor.getId()))
+                .andExpect(jsonPath("$.data.active").value(true));
+        assertThat(userRepository.findById(contributor.getId()).orElseThrow().getActive()).isTrue();
+    }
+
+    @Test
+    void deactivatedUsersDisappearFromActiveStateAndCannotUseProtectedWriteFlow() throws Exception {
+        Post published = createPost(authorB, PostStatus.PUBLISHED);
+
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/deactivate", authorA.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(authorA.getId()))
+                .andExpect(jsonPath("$.data.active").value(false));
+
+        mockMvc.perform(adminRequest(get("/api/admin/users")
+                        .param("role", "USER")
+                        .param("username", "author-a")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(authorA.getId()))
+                .andExpect(jsonPath("$.data[0].active").value(false));
+
+        mockMvc.perform(authorRequest(post("/api/posts/{postId}/comments", published.getId()), authorA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(commentPayload("Inactive users should be blocked"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("账号已被禁用"));
+
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/activate", authorA.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(authorA.getId()))
+                .andExpect(jsonPath("$.data.active").value(true));
+
+        mockMvc.perform(adminRequest(get("/api/admin/users")
+                        .param("role", "USER")
+                        .param("username", "author-a")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(authorA.getId()))
+                .andExpect(jsonPath("$.data[0].active").value(true));
+    }
+
+    @Test
+    void adminCannotDeactivateProtectedAdminTargetsOrSelf() throws Exception {
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/deactivate", admin.getId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("不能停用当前登录管理员"));
+
+        User otherAdmin = userRepository.save(new User("admin-b", "hash", "Admin B", null, UserRole.ADMIN, true));
+        mockMvc.perform(adminRequest(post("/api/admin/users/{userId}/deactivate", otherAdmin.getId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("不能停用管理员账号"));
+    }
+
+    @Test
     void nonAdminCannotAccessAdminUserManagement() throws Exception {
         mockMvc.perform(authorRequest(get("/api/admin/users"), authorA))
                 .andExpect(status().isForbidden())
@@ -510,6 +716,16 @@ class PostReviewFlowApiTests {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("仅管理员可执行该操作"));
+
+        mockMvc.perform(authorRequest(post("/api/admin/users/{userId}/deactivate", authorB.getId()), authorA))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("仅管理员可执行该操作"));
+
+        mockMvc.perform(authorRequest(post("/api/admin/users/{userId}/activate", authorB.getId()), authorA))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("仅管理员可执行该操作"));
     }
 
     @Test
@@ -519,10 +735,7 @@ class PostReviewFlowApiTests {
         requestBody.put("applicationReason", "Test application reason");
         String requestJson = objectMapper.writeValueAsString(requestBody);
 
-        // 使用MockMultipartFile构建multipart请求
-        MockMultipartFile requestPart = new MockMultipartFile("request", "", "application/json", requestJson.getBytes());
-
-        mockMvc.perform(authorRequest(multipart("/api/my/contributor-applications").file(requestPart), authorA))
+        mockMvc.perform(authorRequest(multipart("/api/my/contributor-applications").param("request", requestJson), authorA))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("PENDING"));
@@ -539,8 +752,7 @@ class PostReviewFlowApiTests {
                 .andExpect(jsonPath("$.data.length()").value(0));
 
         // 再次提交申请（应该失败）
-        MockMultipartFile requestPart2 = new MockMultipartFile("request", "", "application/json", requestJson.getBytes());
-        mockMvc.perform(authorRequest(multipart("/api/my/contributor-applications").file(requestPart2), authorA))
+        mockMvc.perform(authorRequest(multipart("/api/my/contributor-applications").param("request", requestJson), authorA))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("已有待处理的贡献者申请"));
@@ -555,17 +767,13 @@ class PostReviewFlowApiTests {
         requestBody.put("applicationReason", "Test application reason");
         String requestJson = objectMapper.writeValueAsString(requestBody);
 
-        // 使用MockMultipartFile构建multipart请求
-        MockMultipartFile requestPart = new MockMultipartFile("request", "", "application/json", requestJson.getBytes());
-
-        mockMvc.perform(authorRequest(multipart("/api/my/contributor-applications").file(requestPart), contributor))
+        mockMvc.perform(authorRequest(multipart("/api/my/contributor-applications").param("request", requestJson), contributor))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("当前角色无需申请贡献者权限"));
 
         // 管理员申请（应该失败）
-        MockMultipartFile requestPart2 = new MockMultipartFile("request", "", "application/json", requestJson.getBytes());
-        mockMvc.perform(adminRequest(multipart("/api/my/contributor-applications").file(requestPart2)))
+        mockMvc.perform(adminRequest(multipart("/api/my/contributor-applications").param("request", requestJson)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("当前角色无需申请贡献者权限"));
@@ -589,7 +797,9 @@ class PostReviewFlowApiTests {
 
         assertThat(userRepository.findById(authorA.getId()).orElseThrow().getRole()).isEqualTo(UserRole.CONTRIBUTOR);
 
-        mockMvc.perform(adminRequest(post("/api/admin/contributor-applications/{applicationId}/reject", pending.getId())))
+        mockMvc.perform(adminRequest(post("/api/admin/contributor-applications/{applicationId}/reject", pending.getId()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload("reason", "Application already approved"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("仅待处理申请可审批"));
@@ -599,12 +809,32 @@ class PostReviewFlowApiTests {
     void adminCanRejectContributorApplicationsWithoutPromotingUser() throws Exception {
         ContributorApplication pending = contributorApplicationRepository.save(ContributorApplication.create(authorB, "Test application reason", null));
 
-        mockMvc.perform(adminRequest(post("/api/admin/contributor-applications/{applicationId}/reject", pending.getId())))
+        mockMvc.perform(adminRequest(post("/api/admin/contributor-applications/{applicationId}/reject", pending.getId()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload("reason", "Please provide stronger heritage contribution evidence"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("REJECTED"));
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.rejectReason").value("Please provide stronger heritage contribution evidence"))
+                .andExpect(jsonPath("$.data.reviewedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.reviewerName").value(admin.getNickname()));
 
         assertThat(userRepository.findById(authorB.getId()).orElseThrow().getRole()).isEqualTo(UserRole.USER);
+
+        ContributorApplication rejected = contributorApplicationRepository.findById(pending.getId()).orElseThrow();
+        assertThat(rejected.getStatus()).isEqualTo(ContributorApplicationStatus.REJECTED);
+        assertThat(rejected.getRejectReason()).isEqualTo("Please provide stronger heritage contribution evidence");
+        assertThat(rejected.getReviewedAt()).isNotNull();
+        assertThat(rejected.getReviewedBy().getId()).isEqualTo(admin.getId());
+
+        mockMvc.perform(authorRequest(get("/api/my/contributor-applications"), authorB))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].status").value("REJECTED"))
+                .andExpect(jsonPath("$.data[0].rejectReason").value("Please provide stronger heritage contribution evidence"))
+                .andExpect(jsonPath("$.data[0].reviewedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].reviewerName").value(admin.getNickname()));
     }
 
     @Test
@@ -669,7 +899,6 @@ class PostReviewFlowApiTests {
 
     private Object commentPayload(String content) {
         return payload(
-                "authorId", authorB.getId(),
                 "content", content
         );
     }
@@ -682,6 +911,18 @@ class PostReviewFlowApiTests {
                 "coverImageUrl", "https://example.com/new-cover.jpg",
                 "heritageName", "Updated heritage",
                 "region", "Updated region",
+                "imageUrls", List.of("https://example.com/gallery-1.jpg")
+        );
+    }
+
+    private Object createPayload(String title) {
+        return payload(
+                "title", title,
+                "content", "Draft content",
+                "categoryId", category.getId(),
+                "coverImageUrl", "https://example.com/cover.jpg",
+                "heritageName", "Heritage item",
+                "region", "Suzhou",
                 "imageUrls", List.of("https://example.com/gallery-1.jpg")
         );
     }

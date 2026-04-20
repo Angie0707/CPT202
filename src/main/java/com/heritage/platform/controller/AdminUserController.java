@@ -41,4 +41,14 @@ public class AdminUserController {
     ) {
         return ApiResponse.success("用户角色更新成功", adminUserService.updateRole(userId, request));
     }
+
+    @PostMapping("/{userId}/activate")
+    public ApiResponse<AdminUserSummaryResponse> activate(@PathVariable Long userId) {
+        return ApiResponse.success("用户已启用", adminUserService.activate(userId));
+    }
+
+    @PostMapping("/{userId}/deactivate")
+    public ApiResponse<AdminUserSummaryResponse> deactivate(@PathVariable Long userId) {
+        return ApiResponse.success("用户已停用", adminUserService.deactivate(userId));
+    }
 }

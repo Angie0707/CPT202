@@ -71,6 +71,13 @@ const backendMessageMap = {
     "当前角色无需调整": "This user already has that role.",
     "仅支持在普通用户与贡献者之间调整角色": "Only USER and CONTRIBUTOR roles can be adjusted here.",
     "目标角色不能为空": "Please choose a target role.",
+    "用户已启用": "User account activated successfully.",
+    "用户已停用": "User account deactivated successfully.",
+    "用户当前已启用": "This user account is already active.",
+    "用户当前已停用": "This user account is already inactive.",
+    "不能停用管理员账号": "Administrator accounts cannot be deactivated.",
+    "不能启用管理员账号": "Administrator accounts cannot be activated here.",
+    "不能停用当前登录管理员": "You cannot deactivate the administrator account that is currently signed in.",
     "当前角色无需申请贡献者权限": "Your current role does not require a contributor application.",
     "已有待处理的贡献者申请": "You already have a pending contributor application.",
     "申请不存在": "The application could not be found.",
@@ -445,10 +452,21 @@ createApp({
             adminFilterStatus: "",
             adminTitleQuery: "",
             adminSortOption: "UPDATED_DESC",
+            pendingQueueQuery: "",
+            pendingQueueReturnToApprovals: false,
+            adminPostPage: 0,
+            adminPostSize: 10,
+            adminPostTotalElements: 0,
+            adminPostTotalPages: 0,
+            adminPostHasPrevious: false,
+            adminPostHasNext: false,
             adminUserQuery: "",
             adminUserRoleFilter: "",
+            adminUserActiveFilter: "",
+            adminContributorApplicationQuery: "",
             adminContributorApplicationStatusFilter: "",
             adminContributorApplicationSortBy: "created_at_desc",
+            contributorApplicationRejectReasons: {},
             selectedAdminPostId: null,
             selectedAdminPost: null,
             adminReviewReason: "",
@@ -558,10 +576,21 @@ createApp({
             return filters.length ? `Showing: ${filters.join(" · ")}` : "Showing: All articles";
         },
         adminResultCountLabel() {
-            return `${this.adminArticles.length} result${this.adminArticles.length === 1 ? "" : "s"}`;
+            const currentCount = this.adminArticles.length;
+            const totalCount = this.adminPostTotalElements || 0;
+            if (!totalCount) {
+                return `${currentCount} result${currentCount === 1 ? "" : "s"}`;
+            }
+            return `${currentCount} of ${totalCount} result${totalCount === 1 ? "" : "s"}`;
         },
         adminSortSummary() {
             return `Sorted by: ${this.adminSortLabel(this.adminSortOption)}`;
+        },
+        adminPaginationLabel() {
+            if (!this.adminPostTotalPages) {
+                return "Page 1 of 1";
+            }
+            return `Page ${this.adminPostPage + 1} of ${this.adminPostTotalPages}`;
         },
         adminSortColumnLabel() {
             if (this.adminSortOption === "SUBMITTED_DESC") {
@@ -573,14 +602,95 @@ createApp({
             return "Updated";
         },
         adminUsersView() {
-            return this.adminUsers.map((user) => ({
-                ...user,
-                status: user.active ? "Active" : "Inactive",
-                contributions: user.contributionCount || 0
-            }));
+            return this.adminUsers
+                .filter((user) => {
+                    if (this.adminUserActiveFilter === "active") {
+                        return user.active === true;
+                    }
+                    if (this.adminUserActiveFilter === "inactive") {
+                        return user.active === false;
+                    }
+                    return true;
+                })
+                .map((user) => ({
+                    ...user,
+                    status: user.active ? "Active" : "Inactive",
+                    contributions: user.contributionCount || 0
+                }));
+        },
+        adminUserResultCountLabel() {
+            const count = this.adminUsersView.length;
+            return `${count} result${count === 1 ? "" : "s"}`;
+        },
+        adminUserFilterSummary() {
+            const parts = [];
+
+            if (this.adminUserRoleFilter) {
+                parts.push(this.roleLabel(this.adminUserRoleFilter));
+            }
+
+            if (this.adminUserActiveFilter === "active") {
+                parts.push("Active");
+            } else if (this.adminUserActiveFilter === "inactive") {
+                parts.push("Inactive");
+            }
+
+            if (this.adminUserQuery.trim()) {
+                parts.push(`"${this.adminUserQuery.trim()}"`);
+            }
+
+            if (!parts.length) {
+                return "Showing: All users";
+            }
+
+            return `Showing: ${parts.join(" · ")}`;
+        },
+        adminContributorApplicationsView() {
+            const query = this.adminContributorApplicationQuery.trim().toLowerCase();
+            return this.adminContributorApplications.filter((application) => {
+                if (!query) {
+                    return true;
+                }
+                return String(application.applicantUsername || "")
+                    .toLowerCase()
+                    .includes(query);
+            });
+        },
+        adminContributorApplicationResultCountLabel() {
+            const count = this.adminContributorApplicationsView.length;
+            return `${count} result${count === 1 ? "" : "s"}`;
+        },
+        adminContributorApplicationFilterSummary() {
+            const parts = [];
+
+            if (this.adminContributorApplicationStatusFilter) {
+                parts.push(this.statusLabel(this.adminContributorApplicationStatusFilter));
+            }
+
+            if (this.adminContributorApplicationQuery.trim()) {
+                parts.push(`"${this.adminContributorApplicationQuery.trim()}"`);
+            }
+
+            if (!parts.length) {
+                return "Showing: All applications";
+            }
+
+            return `Showing: ${parts.join(" · ")}`;
+        },
+        adminContributorApplicationEmptyLabel() {
+            if (!this.adminContributorApplications.length) {
+                return "No contributor applications submitted yet.";
+            }
+            return "No contributor applications match the current filter.";
         },
         adminApprovalsView() {
+            const query = this.pendingQueueQuery.trim().toLowerCase();
             return this.pendingQueuePosts
+                .filter((post) => !query || [post.title, this.translateText(post.title)]
+                    .filter(Boolean)
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(query))
                 .map((post) => ({
                     id: `approval-${post.id}`,
                     postId: post.id,
@@ -590,6 +700,29 @@ createApp({
                     status: post.status,
                     submittedAt: post.submittedAt || post.updatedAt
                 }));
+        },
+        pendingQueueSummaryLabel() {
+            const waitingCount = this.pendingQueuePosts.length;
+            const filteredCount = this.adminApprovalsView.length;
+            if (!waitingCount) {
+                return "0 items waiting";
+            }
+            if (!this.pendingQueueQuery.trim()) {
+                return `${waitingCount} item${waitingCount === 1 ? "" : "s"} waiting`;
+            }
+            return `${filteredCount} of ${waitingCount} item${waitingCount === 1 ? "" : "s"} waiting`;
+        },
+        pendingQueueSearchSummary() {
+            if (!this.pendingQueueQuery.trim()) {
+                return "Queue shows all pending items only.";
+            }
+            return `Searching queue titles for "${this.pendingQueueQuery.trim()}".`;
+        },
+        pendingQueueEmptyLabel() {
+            if (!this.pendingQueuePosts.length) {
+                return "No pending article reviews right now.";
+            }
+            return "No pending article reviews match the current queue search.";
         },
         canApplyForContributor() {
             return this.currentUser?.role === "USER"
@@ -752,6 +885,10 @@ createApp({
         async fetchAdminPosts() {
             if (!this.isAdmin) {
                 this.adminPosts = [];
+                this.adminPostTotalElements = 0;
+                this.adminPostTotalPages = 0;
+                this.adminPostHasPrevious = false;
+                this.adminPostHasNext = false;
                 return;
             }
             const params = new URLSearchParams();
@@ -764,12 +901,38 @@ createApp({
             if (this.adminSortOption) {
                 params.set("sort", this.adminSortOption);
             }
+            params.set("page", String(this.adminPostPage));
+            params.set("size", String(this.adminPostSize));
             const query = params.toString();
-            const data = await this.request(`/api/admin/posts${query ? `?${query}` : ""}`, {
-                method: "GET"
-            }, "", null, true);
-            if (Array.isArray(data)) {
+            this.errorMessage = "";
+            try {
+                const response = await fetch(`/api/admin/posts${query ? `?${query}` : ""}`, {
+                    method: "GET",
+                    headers: this.authHeaders()
+                });
+                const payload = await response.json();
+                if (!payload.success) {
+                    throw new Error(this.translateBackendMessage(payload.message) || "The request could not be completed.");
+                }
+                const data = Array.isArray(payload.data) ? payload.data : [];
+                const totalElements = Number(response.headers.get("X-Total-Elements") || data.length || 0);
+                const totalPages = Number(response.headers.get("X-Total-Pages") || (data.length ? 1 : 0));
+                const hasPrevious = (response.headers.get("X-Has-Previous") || "false") === "true";
+                const hasNext = (response.headers.get("X-Has-Next") || "false") === "true";
+
+                if (this.adminPostPage > 0 && !data.length && totalElements > 0) {
+                    this.adminPostPage -= 1;
+                    await this.fetchAdminPosts();
+                    return;
+                }
+
                 this.adminPosts = data;
+                this.adminPostTotalElements = totalElements;
+                this.adminPostTotalPages = totalPages;
+                this.adminPostHasPrevious = hasPrevious;
+                this.adminPostHasNext = hasNext;
+            } catch (error) {
+                this.showError(error.message || "The request could not be completed.");
             }
         },
         async fetchPendingQueue() {
@@ -802,6 +965,11 @@ createApp({
             }, "", null, true);
             if (Array.isArray(data)) {
                 this.adminContributorApplications = data;
+                const nextRejectReasons = {};
+                for (const application of data) {
+                    nextRejectReasons[application.id] = this.contributorApplicationRejectReasons[application.id] || "";
+                }
+                this.contributorApplicationRejectReasons = nextRejectReasons;
             }
         },
         async fetchAdminUsers() {
@@ -825,12 +993,33 @@ createApp({
             }
         },
         async searchAdminPosts() {
+            this.adminPostPage = 0;
             await this.fetchAdminPosts();
         },
         async clearAdminSearch() {
             this.adminTitleQuery = "";
             this.adminFilterStatus = "";
             this.adminSortOption = "UPDATED_DESC";
+            this.adminPostPage = 0;
+            this.adminPostSize = 10;
+            await this.fetchAdminPosts();
+        },
+        async goToPreviousAdminPostPage() {
+            if (!this.adminPostHasPrevious || this.adminPostPage <= 0) {
+                return;
+            }
+            this.adminPostPage -= 1;
+            await this.fetchAdminPosts();
+        },
+        async goToNextAdminPostPage() {
+            if (!this.adminPostHasNext) {
+                return;
+            }
+            this.adminPostPage += 1;
+            await this.fetchAdminPosts();
+        },
+        async changeAdminPostSize() {
+            this.adminPostPage = 0;
             await this.fetchAdminPosts();
         },
         async searchAdminUsers() {
@@ -839,12 +1028,14 @@ createApp({
         async clearAdminUserSearch() {
             this.adminUserQuery = "";
             this.adminUserRoleFilter = "";
+            this.adminUserActiveFilter = "";
             await this.fetchAdminUsers();
         },
         async searchAdminContributorApplications() {
             await this.fetchAdminContributorApplications();
         },
         async clearAdminContributorApplications() {
+            this.adminContributorApplicationQuery = "";
             this.adminContributorApplicationStatusFilter = "";
             await this.fetchAdminContributorApplications();
         },
@@ -952,6 +1143,9 @@ createApp({
         },
         async selectAdminSection(section) {
             this.adminSection = section;
+            if (section !== "articles") {
+                this.pendingQueueReturnToApprovals = false;
+            }
             if (this.isAdmin && section === "articles") {
                 await this.fetchAdminPosts();
             }
@@ -1141,6 +1335,8 @@ createApp({
             this.selectedAdminPost = null;
             this.profileSection = "published";
             this.adminSection = "articles";
+            this.pendingQueueQuery = "";
+            this.pendingQueueReturnToApprovals = false;
             this.myPosts = [];
             this.contributorApplications = [];
             this.adminPosts = [];
@@ -1163,7 +1359,6 @@ createApp({
 
             const payload = {
                 ...this.postForm,
-                authorId: this.currentUser.id,
                 categoryId: Number(this.postForm.categoryId)
             };
 
@@ -1220,7 +1415,6 @@ createApp({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    authorId: this.currentUser.id,
                     content: this.commentForm.content
                 })
             }, "Comment posted successfully.", null, true);
@@ -1283,6 +1477,7 @@ createApp({
             if (!this.selectedAdminPostId) {
                 return;
             }
+            const reviewedPostId = this.selectedAdminPostId;
             const data = await this.request(`/api/admin/posts/${this.selectedAdminPostId}/review`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -1291,7 +1486,14 @@ createApp({
             if (data) {
                 this.adminReviewReason = "";
                 await this.refreshAdminViews();
-                await this.openAdminPost(this.selectedAdminPostId);
+                if (this.pendingQueueReturnToApprovals && data.status !== "PENDING_REVIEW") {
+                    this.selectedAdminPostId = reviewedPostId;
+                    this.selectedAdminPost = data;
+                    this.pendingQueueReturnToApprovals = false;
+                    this.adminSection = "approvals";
+                } else {
+                    await this.openAdminPost(this.selectedAdminPostId);
+                }
                 await this.fetchPosts();
             }
         },
@@ -1299,6 +1501,7 @@ createApp({
             if (!this.selectedAdminPostId) {
                 return;
             }
+            const reviewedPostId = this.selectedAdminPostId;
             if (!this.adminReviewReason.trim()) {
                 this.showError("Please provide a rejection reason before rejecting this article.");
                 return;
@@ -1310,7 +1513,14 @@ createApp({
             }, "Article rejected successfully.", null, true);
             if (data) {
                 await this.refreshAdminViews();
-                await this.openAdminPost(this.selectedAdminPostId);
+                if (this.pendingQueueReturnToApprovals && data.status !== "PENDING_REVIEW") {
+                    this.selectedAdminPostId = reviewedPostId;
+                    this.selectedAdminPost = data;
+                    this.pendingQueueReturnToApprovals = false;
+                    this.adminSection = "approvals";
+                } else {
+                    await this.openAdminPost(this.selectedAdminPostId);
+                }
             }
         },
         async quickApproveFromQueue(postId) {
@@ -1328,8 +1538,17 @@ createApp({
             }
         },
         async openReviewFromQueue(postId) {
+            this.pendingQueueReturnToApprovals = true;
             await this.selectAdminSection("articles");
             await this.openAdminPost(postId);
+        },
+        async returnToPendingQueue() {
+            this.adminSection = "approvals";
+            this.pendingQueueReturnToApprovals = false;
+            await this.fetchPendingQueue();
+        },
+        clearPendingQueueSearch() {
+            this.pendingQueueQuery = "";
         },
         async updateAdminUserRole(userId, role) {
             const data = await this.request(`/api/admin/users/${userId}/role`, {
@@ -1341,20 +1560,45 @@ createApp({
                 await this.fetchAdminUsers();
             }
         },
+        async activateAdminUser(userId) {
+            const data = await this.request(`/api/admin/users/${userId}/activate`, {
+                method: "POST"
+            }, "User account activated successfully.", null, true);
+            if (data) {
+                await this.fetchAdminUsers();
+            }
+        },
+        async deactivateAdminUser(userId) {
+            const data = await this.request(`/api/admin/users/${userId}/deactivate`, {
+                method: "POST"
+            }, "User account deactivated successfully.", null, true);
+            if (data) {
+                await this.fetchAdminUsers();
+            }
+        },
         async approveContributorApplication(applicationId) {
             const data = await this.request(`/api/admin/contributor-applications/${applicationId}/approve`, {
                 method: "POST"
             }, "Contributor application approved successfully.", null, true);
             if (data) {
+                this.contributorApplicationRejectReasons[applicationId] = "";
                 await this.fetchAdminContributorApplications();
                 await this.fetchAdminUsers();
             }
         },
         async rejectContributorApplication(applicationId) {
+            const reason = (this.contributorApplicationRejectReasons[applicationId] || "").trim();
+            if (!reason) {
+                this.showError("Please provide a rejection reason before rejecting this application.");
+                return;
+            }
             const data = await this.request(`/api/admin/contributor-applications/${applicationId}/reject`, {
-                method: "POST"
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason })
             }, "Contributor application rejected successfully.", null, true);
             if (data) {
+                this.contributorApplicationRejectReasons[applicationId] = "";
                 await this.fetchAdminContributorApplications();
                 await this.fetchAdminUsers();
             }
@@ -1485,16 +1729,25 @@ createApp({
         nextUserRoleLabel(user) {
             return user?.role === "USER" ? "Promote to Contributor" : "Change to User";
         },
+        nextUserActiveActionLabel(user) {
+            return user?.active ? "Deactivate" : "Activate";
+        },
         contributorApplicationTitle() {
             return "Contributor Access Application";
         },
         contributorApplicationNote(application) {
-            const mapping = {
-                PENDING: "Your contributor application is waiting for administrator review.",
-                APPROVED: "Your contributor application was approved.",
-                REJECTED: "Your contributor application was rejected."
-            };
-            return mapping[application?.status] || "";
+            if (application?.status === "PENDING") {
+                return "Your contributor application is waiting for administrator review.";
+            }
+            if (application?.status === "APPROVED") {
+                return "Your contributor application was approved.";
+            }
+            if (application?.status === "REJECTED") {
+                return application?.rejectReason
+                    ? `Your contributor application was rejected: ${application.rejectReason}`
+                    : "Your contributor application was rejected.";
+            }
+            return "";
         },
         showError(message) {
             this.errorMessage = message;

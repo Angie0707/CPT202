@@ -73,8 +73,11 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE TABLE IF NOT EXISTS contributor_applications (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     applicant_id BIGINT NOT NULL,
+    application_reason TEXT,
+    attachment_path VARCHAR(255),
     status VARCHAR(20) NOT NULL,
     reviewed_by BIGINT,
+    reject_reason VARCHAR(255),
     reviewed_at DATETIME,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
