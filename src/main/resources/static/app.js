@@ -446,6 +446,7 @@ createApp({
             workspaceDrafts: [],
             workspacePending: [],
             contributorApplications: [],
+            myContributorApplicationStatusFilter: "",
             adminUsers: [],
             adminContributorApplications: [],
             adminApprovals: [],
@@ -723,6 +724,30 @@ createApp({
                 return "No pending article reviews right now.";
             }
             return "No pending article reviews match the current queue search.";
+        },
+        myContributorApplicationsView() {
+            return this.contributorApplications.filter((application) => {
+                if (!this.myContributorApplicationStatusFilter) {
+                    return true;
+                }
+                return application.status === this.myContributorApplicationStatusFilter;
+            });
+        },
+        myContributorApplicationResultCountLabel() {
+            const count = this.myContributorApplicationsView.length;
+            return `${count} result${count === 1 ? "" : "s"}`;
+        },
+        myContributorApplicationFilterSummary() {
+            if (!this.myContributorApplicationStatusFilter) {
+                return "Showing: All requests";
+            }
+            return `Showing: ${this.statusLabel(this.myContributorApplicationStatusFilter)}`;
+        },
+        myContributorApplicationEmptyLabel() {
+            if (!this.contributorApplications.length) {
+                return "No contributor applications submitted yet.";
+            }
+            return "No contributor applications match the current filter.";
         },
         canApplyForContributor() {
             return this.currentUser?.role === "USER"
@@ -1038,6 +1063,9 @@ createApp({
             this.adminContributorApplicationQuery = "";
             this.adminContributorApplicationStatusFilter = "";
             await this.fetchAdminContributorApplications();
+        },
+        clearMyContributorApplicationFilter() {
+            this.myContributorApplicationStatusFilter = "";
         },
         async refreshWorkspaceData() {
             await this.fetchMyPosts();

@@ -1,3 +1,46 @@
-data/*.mv.db
-data/*.lock.db
-data/*.trace.db
+# ===== OS / Editor =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
+
+# ===== Java / Maven / Gradle build outputs =====
+target/
+build/
+out/
+
+# ===== Maven local cache =====
+.m2/
+
+# ===== Logs =====
+*.log
+spring-boot-run.out.log
+spring-boot-run.err.log
+
+# ===== Runtime data / local database =====
+data/
+*.mv.db
+*.lock.db
+*.trace.db
+*.h2.db
+
+# ===== Uploaded runtime files =====
+uploads/*
+!uploads/.gitkeep
+
+# ===== Temp files =====
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# ===== Codex / local assistant config =====
+.codex/
+agents/
+AGENTS.md
+HELP.md
+
+# ===== Test / coverage artifacts =====
+surefire-reports/
+coverage/

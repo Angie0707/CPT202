@@ -554,7 +554,23 @@
                 </div>
 
                 <div v-else class="request-grid">
-                    <article v-for="entry in contributorApplications" :key="entry.id" class="card request-card">
+                    <article class="card request-card request-card--action">
+                        <p class="eyebrow dark">Request History</p>
+                        <h3>Track your contributor application status</h3>
+                        <p class="muted">{{ myContributorApplicationResultCountLabel }}</p>
+                        <p class="muted">{{ myContributorApplicationFilterSummary }}</p>
+                        <div class="request-actions">
+                            <select v-model="myContributorApplicationStatusFilter">
+                                <option value="">All statuses</option>
+                                <option value="PENDING">Pending</option>
+                                <option value="APPROVED">Approved</option>
+                                <option value="REJECTED">Rejected</option>
+                            </select>
+                            <button class="ghost-btn small" type="button" @click="clearMyContributorApplicationFilter">Clear</button>
+                        </div>
+                    </article>
+
+                    <article v-for="entry in myContributorApplicationsView" :key="entry.id" class="card request-card">
                         <div class="request-card__top">
                             <h3>{{ contributorApplicationTitle() }}</h3>
                             <span class="status-chip" :class="statusClass(entry.status)">{{ statusLabel(entry.status) }}</span>
@@ -567,7 +583,7 @@
                             <span v-if="entry.reviewerName">Reviewed by {{ translateNickname(entry.reviewerName) }}</span>
                         </div>
                     </article>
-                    <div v-if="!contributorApplications.length" class="card empty-state">No contributor applications submitted yet.</div>
+                    <div v-if="!myContributorApplicationsView.length" class="card empty-state">{{ myContributorApplicationEmptyLabel }}</div>
 
                     <article v-if="canApplyForContributor" class="card request-card request-card--action">
                         <p class="eyebrow dark">Apply for Access</p>

@@ -838,6 +838,38 @@ class PostReviewFlowApiTests {
     }
 
     @Test
+    void adminContributorApplicationsSupportStatusFilteringAndUsernameSorting() throws Exception {
+        User alphaUser = userRepository.save(new User("alpha-applicant", "hash", "Alpha Applicant", null, UserRole.USER, true));
+        User zuluUser = userRepository.save(new User("zulu-applicant", "hash", "Zulu Applicant", null, UserRole.USER, true));
+
+        ContributorApplication pendingZulu = contributorApplicationRepository.saveAndFlush(
+                ContributorApplication.create(zuluUser, "Pending application", null)
+        );
+
+        ContributorApplication rejectedAlpha = contributorApplicationRepository.saveAndFlush(
+                ContributorApplication.create(alphaUser, "Rejected application", null)
+        );
+        rejectedAlpha.reject(admin, "Need more evidence");
+        contributorApplicationRepository.saveAndFlush(rejectedAlpha);
+
+        mockMvc.perform(adminRequest(get("/api/admin/contributor-applications").param("status", "PENDING")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(pendingZulu.getId()))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.data[0].applicantUsername").value("zulu-applicant"));
+
+        mockMvc.perform(adminRequest(get("/api/admin/contributor-applications")
+                        .param("sortBy", "applicant_username_asc")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].applicantUsername").value("alpha-applicant"))
+                .andExpect(jsonPath("$.data[1].applicantUsername").value("zulu-applicant"));
+    }
+
+    @Test
     void nonAdminCannotAccessAdminContributorApplications() throws Exception {
         ContributorApplication pending = contributorApplicationRepository.save(ContributorApplication.create(authorA, "Test application reason", null));
 
