@@ -1,9 +1,12 @@
 package com.heritage.platform.controller;
 
 import com.heritage.platform.common.ApiResponse;
+import com.heritage.platform.dto.request.AdminContributorApplicationRejectRequest;
 import com.heritage.platform.dto.response.AdminContributorApplicationResponse;
 import com.heritage.platform.enums.ContributorApplicationStatus;
+import jakarta.validation.Valid;
 import com.heritage.platform.service.ContributorApplicationService;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,9 +28,10 @@ public class AdminContributorApplicationController {
 
     @GetMapping
     public ApiResponse<List<AdminContributorApplicationResponse>> listApplications(
-            @RequestParam(required = false) ContributorApplicationStatus status
+            @RequestParam(required = false) ContributorApplicationStatus status,
+            @RequestParam(required = false, defaultValue = "created_at_desc") String sortBy
     ) {
-        return ApiResponse.success(contributorApplicationService.listAdminApplications(status));
+        return ApiResponse.success(contributorApplicationService.listAdminApplications(status, sortBy));
     }
 
     @PostMapping("/{applicationId}/approve")
@@ -36,7 +40,10 @@ public class AdminContributorApplicationController {
     }
 
     @PostMapping("/{applicationId}/reject")
-    public ApiResponse<AdminContributorApplicationResponse> reject(@PathVariable Long applicationId) {
-        return ApiResponse.success("贡献者申请已驳回", contributorApplicationService.reject(applicationId));
+    public ApiResponse<AdminContributorApplicationResponse> reject(
+            @PathVariable Long applicationId,
+            @Valid @RequestBody AdminContributorApplicationRejectRequest request
+    ) {
+        return ApiResponse.success("贡献者申请已驳回", contributorApplicationService.reject(applicationId, request));
     }
 }

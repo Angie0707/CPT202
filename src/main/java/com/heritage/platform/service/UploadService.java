@@ -3,6 +3,7 @@ package com.heritage.platform.service;
 import com.heritage.platform.common.BadRequestException;
 import com.heritage.platform.dto.response.UploadResponse;
 import jakarta.annotation.PostConstruct;
+import com.heritage.platform.service.AuthContextService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,12 +20,19 @@ public class UploadService {
     @Value("${app.upload-dir:uploads}")
     private String uploadDir;
 
+    private final AuthContextService authContextService;
+
+    public UploadService(AuthContextService authContextService) {
+        this.authContextService = authContextService;
+    }
+
     @PostConstruct
     public void init() throws IOException {
         Files.createDirectories(Path.of(uploadDir));
     }
 
     public UploadResponse uploadImage(MultipartFile file) {
+        authContextService.requireContributor();
         if (file.isEmpty()) {
             throw new BadRequestException("上传文件不能为空");
         }

@@ -2,6 +2,7 @@ package com.heritage.platform.service;
 
 import com.heritage.platform.common.BadRequestException;
 import com.heritage.platform.common.ResourceNotFoundException;
+import com.heritage.platform.dto.response.AdminPostPageResult;
 import com.heritage.platform.dto.request.AdminPostReviewRequest;
 import com.heritage.platform.dto.response.AdminPostDetailResponse;
 import com.heritage.platform.dto.response.AdminPostSummaryResponse;
@@ -13,6 +14,10 @@ import com.heritage.platform.enums.AdminPostSort;
 import com.heritage.platform.enums.PostStatus;
 import com.heritage.platform.repository.CommentRepository;
 import com.heritage.platform.repository.PostRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,6 +67,48 @@ public class AdminPostService {
                 .toList();
 
         return posts.stream().map(this::toSummary).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public AdminPostPageResult listPostsPage(PostStatus status, String title, AdminPostSort sort, Integer page, Integer size) {
+        authContextService.requireAdmin();
+
+        int pageNumber = page == null ? 0 : page;
+        int pageSize = size == null ? 10 : size;
+        if (pageNumber < 0) {
+            throw new BadRequestException("页码不能小于0");
+        }
+        if (pageSize <= 0) {
+            throw new BadRequestException("每页数量必须大于0");
+        }
+        if (pageSize > 50) {
+            pageSize = 50;
+        }
+
+        String trimmedTitle = title == null ? "" : title.trim();
+        boolean hasTitle = !trimmedTitle.isEmpty();
+        Pageable pageable = PageRequest.of(pageNumber, pageSize, buildSort(sort == null ? AdminPostSort.UPDATED_DESC : sort));
+
+        Page<Post> posts;
+        if (status != null && hasTitle) {
+            posts = postRepository.findAllByStatusAndTitleContainingIgnoreCase(status, trimmedTitle, pageable);
+        } else if (status != null) {
+            posts = postRepository.findAllByStatus(status, pageable);
+        } else if (hasTitle) {
+            posts = postRepository.findAllByTitleContainingIgnoreCase(trimmedTitle, pageable);
+        } else {
+            posts = postRepository.findAllBy(pageable);
+        }
+
+        return new AdminPostPageResult(
+                posts.stream().map(this::toSummary).toList(),
+                posts.getNumber(),
+                posts.getSize(),
+                posts.getTotalElements(),
+                posts.getTotalPages(),
+                posts.hasPrevious(),
+                posts.hasNext()
+        );
     }
 
     @Transactional(readOnly = true)
@@ -134,6 +181,20 @@ public class AdminPostService {
                     .comparing(Post::getReviewedAt, Comparator.nullsLast(Comparator.reverseOrder()))
                     .thenComparing(Post::getUpdatedAt, Comparator.reverseOrder());
             case UPDATED_DESC -> Comparator.comparing(Post::getUpdatedAt, Comparator.reverseOrder());
+        };
+    }
+
+    private Sort buildSort(AdminPostSort sortOption) {
+        return switch (sortOption) {
+            case SUBMITTED_DESC -> Sort.by(
+                    Sort.Order.desc("submittedAt"),
+                    Sort.Order.desc("updatedAt")
+            );
+            case REVIEWED_DESC -> Sort.by(
+                    Sort.Order.desc("reviewedAt"),
+                    Sort.Order.desc("updatedAt")
+            );
+            case UPDATED_DESC -> Sort.by(Sort.Order.desc("updatedAt"));
         };
     }
 

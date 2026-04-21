@@ -6,6 +6,7 @@ public record AuthResponse(
         Long id,
         String username,
         String nickname,
-        UserRole role
+        UserRole role,
+        String token
 ) {
 }

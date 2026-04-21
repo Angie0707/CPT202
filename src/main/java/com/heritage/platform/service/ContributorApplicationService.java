@@ -2,6 +2,7 @@ package com.heritage.platform.service;
 
 import com.heritage.platform.common.BadRequestException;
 import com.heritage.platform.common.ResourceNotFoundException;
+import com.heritage.platform.dto.request.AdminContributorApplicationRejectRequest;
 import com.heritage.platform.dto.response.AdminContributorApplicationResponse;
 import com.heritage.platform.dto.response.MyContributorApplicationResponse;
 import com.heritage.platform.entity.ContributorApplication;
@@ -37,7 +38,7 @@ public class ContributorApplicationService {
     }
 
     @Transactional
-    public MyContributorApplicationResponse createApplication() {
+    public MyContributorApplicationResponse createApplication(String applicationReason, String attachmentPath) {
         User currentUser = authContextService.requireActiveUser();
 
         if (currentUser.getRole() != UserRole.USER) {
@@ -48,17 +49,28 @@ public class ContributorApplicationService {
             throw new BadRequestException("已有待处理的贡献者申请");
         }
 
-        ContributorApplication application = contributorApplicationRepository.save(ContributorApplication.create(currentUser));
+        ContributorApplication application = contributorApplicationRepository.save(ContributorApplication.create(currentUser, applicationReason, attachmentPath));
         return toMyResponse(application);
     }
 
     @Transactional(readOnly = true)
-    public List<AdminContributorApplicationResponse> listAdminApplications(ContributorApplicationStatus status) {
+    public List<AdminContributorApplicationResponse> listAdminApplications(ContributorApplicationStatus status, String sortBy) {
         authContextService.requireAdmin();
 
-        List<ContributorApplication> applications = status == null
-                ? contributorApplicationRepository.findAllByOrderByCreatedAtDesc()
-                : contributorApplicationRepository.findAllByStatusOrderByCreatedAtDesc(status);
+        List<ContributorApplication> applications;
+        if (status == null) {
+            if ("applicant_username_asc".equals(sortBy)) {
+                applications = contributorApplicationRepository.findAllByOrderByApplicantUsernameAsc();
+            } else {
+                applications = contributorApplicationRepository.findAllByOrderByCreatedAtDesc();
+            }
+        } else {
+            if ("applicant_username_asc".equals(sortBy)) {
+                applications = contributorApplicationRepository.findAllByStatusOrderByApplicantUsernameAsc(status);
+            } else {
+                applications = contributorApplicationRepository.findAllByStatusOrderByCreatedAtDesc(status);
+            }
+        }
 
         return applications.stream().map(this::toAdminResponse).toList();
     }
@@ -82,7 +94,7 @@ public class ContributorApplicationService {
     }
 
     @Transactional
-    public AdminContributorApplicationResponse reject(Long applicationId) {
+    public AdminContributorApplicationResponse reject(Long applicationId, AdminContributorApplicationRejectRequest request) {
         User admin = authContextService.requireAdmin();
         ContributorApplication application = contributorApplicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("申请不存在"));
@@ -94,14 +106,18 @@ public class ContributorApplicationService {
             throw new BadRequestException("申请人当前角色不允许审批此申请");
         }
 
-        application.reject(admin);
+        application.reject(admin, request.reason().trim());
         return toAdminResponse(application);
     }
 
     private MyContributorApplicationResponse toMyResponse(ContributorApplication application) {
         return new MyContributorApplicationResponse(
                 application.getId(),
+                application.getApplicationReason(),
+                application.getAttachmentPath(),
                 application.getStatus(),
+                application.getReviewedBy() == null ? null : application.getReviewedBy().getNickname(),
+                application.getRejectReason(),
                 application.getCreatedAt(),
                 application.getReviewedAt(),
                 application.getUpdatedAt()
@@ -115,8 +131,12 @@ public class ContributorApplicationService {
                 application.getApplicant().getUsername(),
                 application.getApplicant().getNickname(),
                 application.getApplicant().getRole(),
+                application.getApplicationReason(),
+                application.getAttachmentPath(),
                 application.getStatus(),
+                application.getReviewedBy() == null ? null : application.getReviewedBy().getId(),
                 application.getReviewedBy() == null ? null : application.getReviewedBy().getNickname(),
+                application.getRejectReason(),
                 application.getCreatedAt(),
                 application.getReviewedAt(),
                 application.getUpdatedAt()

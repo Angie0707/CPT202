@@ -8,6 +8,7 @@ import com.heritage.platform.dto.response.AuthResponse;
 import com.heritage.platform.entity.User;
 import com.heritage.platform.enums.UserRole;
 import com.heritage.platform.repository.UserRepository;
+import com.heritage.platform.util.JwtUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,10 +18,12 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtUtils jwtUtils;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtils jwtUtils) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtUtils = jwtUtils;
     }
 
     @Transactional
@@ -58,6 +61,7 @@ public class AuthService {
     }
 
     private AuthResponse toResponse(User user) {
-        return new AuthResponse(user.getId(), user.getUsername(), user.getNickname(), user.getRole());
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole().name());
+        return new AuthResponse(user.getId(), user.getUsername(), user.getNickname(), user.getRole(), token);
     }
 }

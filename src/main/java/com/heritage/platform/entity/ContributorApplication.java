@@ -27,6 +27,12 @@ public class ContributorApplication extends BaseTimeEntity {
     @JoinColumn(name = "applicant_id", nullable = false)
     private User applicant;
 
+    @Column(columnDefinition = "TEXT")
+    private String applicationReason;
+
+    @Column(length = 255)
+    private String attachmentPath;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ContributorApplicationStatus status = ContributorApplicationStatus.PENDING;
@@ -37,28 +43,35 @@ public class ContributorApplication extends BaseTimeEntity {
 
     private LocalDateTime reviewedAt;
 
+    @Column(length = 255)
+    private String rejectReason;
+
     protected ContributorApplication() {
     }
 
-    private ContributorApplication(User applicant) {
+    private ContributorApplication(User applicant, String applicationReason, String attachmentPath) {
         this.applicant = applicant;
+        this.applicationReason = applicationReason;
+        this.attachmentPath = attachmentPath;
         this.status = ContributorApplicationStatus.PENDING;
     }
 
-    public static ContributorApplication create(User applicant) {
-        return new ContributorApplication(applicant);
+    public static ContributorApplication create(User applicant, String applicationReason, String attachmentPath) {
+        return new ContributorApplication(applicant, applicationReason, attachmentPath);
     }
 
     public void approve(User reviewer) {
         this.status = ContributorApplicationStatus.APPROVED;
         this.reviewedBy = reviewer;
         this.reviewedAt = LocalDateTime.now();
+        this.rejectReason = null;
     }
 
-    public void reject(User reviewer) {
+    public void reject(User reviewer, String reason) {
         this.status = ContributorApplicationStatus.REJECTED;
         this.reviewedBy = reviewer;
         this.reviewedAt = LocalDateTime.now();
+        this.rejectReason = reason;
     }
 
     public Long getId() {
@@ -67,6 +80,14 @@ public class ContributorApplication extends BaseTimeEntity {
 
     public User getApplicant() {
         return applicant;
+    }
+
+    public String getApplicationReason() {
+        return applicationReason;
+    }
+
+    public String getAttachmentPath() {
+        return attachmentPath;
     }
 
     public ContributorApplicationStatus getStatus() {
@@ -79,5 +100,9 @@ public class ContributorApplication extends BaseTimeEntity {
 
     public LocalDateTime getReviewedAt() {
         return reviewedAt;
+    }
+
+    public String getRejectReason() {
+        return rejectReason;
     }
 }

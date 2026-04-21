@@ -44,7 +44,7 @@ public class PostService {
 
     @Transactional
     public PostDetailResponse create(PostCreateRequest request) {
-        User author = authContextService.requireActiveUser();
+        User author = authContextService.requireContributor();
 
         Post post = Post.create(
                 request.title(),

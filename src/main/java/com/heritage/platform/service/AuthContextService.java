@@ -1,12 +1,13 @@
 package com.heritage.platform.service;
 
-import com.heritage.platform.common.BadRequestException;
 import com.heritage.platform.common.ForbiddenException;
 import com.heritage.platform.common.ResourceNotFoundException;
 import com.heritage.platform.entity.User;
 import com.heritage.platform.enums.UserRole;
 import com.heritage.platform.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -15,8 +16,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Service
 public class AuthContextService {
 
-    private static final String USER_ID_HEADER = "X-User-Id";
-
+    private static final Logger logger = LoggerFactory.getLogger(AuthContextService.class);
+    
     private final UserRepository userRepository;
 
     public AuthContextService(UserRepository userRepository) {
@@ -25,6 +26,7 @@ public class AuthContextService {
 
     public User requireActiveUser() {
         Long userId = resolveCurrentUserId();
+        logger.info("requireActiveUser called - userId: {}", userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("用户不存在"));
 
@@ -43,22 +45,30 @@ public class AuthContextService {
         return user;
     }
 
+    public User requireContributor() {
+        User user = requireActiveUser();
+        if (user.getRole() != UserRole.CONTRIBUTOR && user.getRole() != UserRole.ADMIN) {
+            throw new ForbiddenException("仅投稿用户可执行该操作");
+        }
+        return user;
+    }
+
     private Long resolveCurrentUserId() {
+        logger.info("resolveCurrentUserId called");
         RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
         if (!(attributes instanceof ServletRequestAttributes servletAttributes)) {
+            logger.error("Could not get ServletRequestAttributes");
             throw new ForbiddenException("无法获取当前请求上下文");
         }
 
         HttpServletRequest request = servletAttributes.getRequest();
-        String headerValue = request.getHeader(USER_ID_HEADER);
-        if (headerValue == null || headerValue.isBlank()) {
-            throw new ForbiddenException("缺少请求头: " + USER_ID_HEADER);
+        Long userId = (Long) request.getAttribute("userId");
+        logger.info("userId from request attribute: {}", userId);
+        
+        if (userId == null) {
+            logger.error("userId is null");
+            throw new ForbiddenException("请先登录");
         }
-
-        try {
-            return Long.parseLong(headerValue);
-        } catch (NumberFormatException ex) {
-            throw new BadRequestException("请求头 X-User-Id 格式不正确");
-        }
+        return userId;
     }
 }

@@ -1,0 +1,19 @@
+# local engineering / codex files
+.codex/
+agents/
+AGENTS.md
+HELP.md
+
+# build outputs
+target/
+build/
+
+# local runtime data
+data/*.mv.db
+data/*.lock.db
+data/*.trace.db
+
+# logs
+*.log
+spring-boot-run.out.log
+spring-boot-run.err.log

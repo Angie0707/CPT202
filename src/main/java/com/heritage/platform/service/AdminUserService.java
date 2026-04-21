@@ -56,8 +56,7 @@ public class AdminUserService {
     public AdminUserSummaryResponse updateRole(Long userId, AdminUserRoleUpdateRequest request) {
         authContextService.requireAdmin();
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("用户不存在"));
+        User user = findUser(userId);
 
         if (user.getRole() == UserRole.ADMIN) {
             throw new BadRequestException("不能修改管理员角色");
@@ -79,6 +78,50 @@ public class AdminUserService {
 
         user.changeRole(request.role());
         return toSummary(user);
+    }
+
+    @Transactional
+    public AdminUserSummaryResponse activate(Long userId) {
+        authContextService.requireAdmin();
+        User user = findUser(userId);
+        validateManageableUserStatusTarget(user, false);
+
+        if (Boolean.TRUE.equals(user.getActive())) {
+            throw new BadRequestException("用户当前已启用");
+        }
+
+        user.activate();
+        return toSummary(user);
+    }
+
+    @Transactional
+    public AdminUserSummaryResponse deactivate(Long userId) {
+        User admin = authContextService.requireAdmin();
+        User user = findUser(userId);
+
+        if (admin.getId().equals(user.getId())) {
+            throw new BadRequestException("不能停用当前登录管理员");
+        }
+
+        validateManageableUserStatusTarget(user, true);
+
+        if (!Boolean.TRUE.equals(user.getActive())) {
+            throw new BadRequestException("用户当前已停用");
+        }
+
+        user.deactivate();
+        return toSummary(user);
+    }
+
+    private User findUser(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("用户不存在"));
+    }
+
+    private void validateManageableUserStatusTarget(User user, boolean deactivating) {
+        if (user.getRole() == UserRole.ADMIN) {
+            throw new BadRequestException(deactivating ? "不能停用管理员账号" : "不能启用管理员账号");
+        }
     }
 
     private AdminUserSummaryResponse toSummary(User user) {

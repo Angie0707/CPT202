@@ -80,4 +80,12 @@ public class User extends BaseTimeEntity {
     public void changeRole(UserRole role) {
         this.role = role;
     }
+
+    public void activate() {
+        this.active = Boolean.TRUE;
+    }
+
+    public void deactivate() {
+        this.active = Boolean.FALSE;
+    }
 }
